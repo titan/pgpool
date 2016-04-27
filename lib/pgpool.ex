@@ -1,8 +1,17 @@
 defmodule PGPool do
-  @on_load :load_nifs
 
-  def load_nifs do
-    :erlang.load_nif("./priv_dir/hstore_to_map", 0)
+  @compile {:autoload, false}
+  @on_load {:init, 0}
+
+  def init do
+    path = :filename.join(:code.priv_dir(:pgpool), 'hstore_to_map')
+
+    case :erlang.load_nif(path, 0) do
+      :ok -> :ok
+      _ -> {:error, "The file `hstore_to_map` failed to load." <>
+        " Try recompiling pgpool by running `mix deps.compile pgpool`" <>
+        " and / or `MIX_ENV=test mix deps.compile pgpool`."}
+    end
   end
 
   @doc """
