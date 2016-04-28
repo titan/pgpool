@@ -5,8 +5,7 @@ defmodule PGPool.Mixfile do
     [app: :pgpool,
      version: "0.1.0",
      elixir: "~> 1.2",
-     compilers: [:make | Mix.compilers],
-     aliases: aliases,
+     compilers: [:nif | Mix.compilers],
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
      deps: deps]
@@ -23,32 +22,81 @@ defmodule PGPool.Mixfile do
       {:ex_doc, "~> 0.11", only: :dev}
     ]
   end
-
-  defp aliases do
-    # Execute the usual mix clean and our Makefile clean task
-    [clean: ["clean", "clean.make"]]
-  end
-
 end
 
-defmodule Mix.Tasks.Compile.Make do
+
+defmodule Mix.Tasks.Compile.Nif do
   @shortdoc "Compiles helper in c_src"
 
   def run(_) do
-    {result, _error_code} = System.cmd("make", [], stderr_to_stdout: true)
-    Mix.shell.info result
+    File.rm_rf!("priv")
+    File.mkdir("priv")
+    {exec, args} =
+      case :os.type do
+        {:unix, os} when os in [:freebsd, :openbsd] ->
+          {"gmake", ["priv/hstore_to_map.so"]}
+        _ ->
+          {"make", ["priv/hstore_to_map.so"]}
+      end
 
-    :ok
+    if System.find_executable(exec) do
+      build(exec, args)
+      Mix.Project.build_structure
+      :ok
+    else
+      nocompiler_error(exec)
+    end
   end
-end
 
-defmodule Mix.Tasks.Clean.Make do
-  @shortdoc "Cleans helper in c_src"
-
-  def run(_) do
-    {result, _error_code} = System.cmd("make", ['clean'], stderr_to_stdout: true)
-    Mix.shell.info result
-
-    :ok
+  def build(exec, args) do
+    {result, error_code} = System.cmd(exec, args, stderr_to_stdout: true)
+    IO.binwrite result
+    if error_code != 0, do: build_error(exec)
   end
+
+  defp nocompiler_error(exec) do
+    raise Mix.Error, message: nocompiler_message(exec) <> nix_message
+  end
+
+  defp build_error(_) do
+    raise Mix.Error, message: build_message <> nix_message
+  end
+
+  defp nocompiler_message(exec) do
+  """
+  Could not find the program `#{exec}`.
+
+  You will need to install the C compiler `#{exec}` to be able to build
+  PGPool.
+
+  """
+  end
+
+  defp build_message do
+  """
+  Could not compile PGPool.
+
+  Please make sure that you are using Erlang / OTP version 18.0 or later
+  and that you have a C compiler installed.
+
+  """
+  end
+
+  defp nix_message do
+  """
+  Please follow the directions below for the operating system you are
+  using:
+
+  Mac OS X: You need to have gcc and make installed. Try running the
+  commands `gcc --version` and / or `make --version`. If these programs
+  are not installed, you will be prompted to install them.
+
+  Linux: You need to have gcc and make installed. If you are using
+  Ubuntu or any other Debian-based system, install the packages
+  `build-essential`. Also install `erlang-dev` package if not
+  included in your Erlang/OTP version.
+
+  """
+  end
+
 end
