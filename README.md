@@ -19,8 +19,8 @@
   3. 配置文件中加入：
 
         config :pgpool,
-        pools: [
-            {:pgpool,
+        databases: [
+            {:mydbname,
             [
                 size: 10,
                 max_overflow: 20

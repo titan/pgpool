@@ -1,5 +1,151 @@
 defmodule PGPool do
 
+  @moduledoc """
+
+  PGPool 是 PostgresSQL 数据的客户端，采用了连接池设计，在出错时，自动重新连接数
+  据库。PGPool 并非完全从头开发，在底层利用 `poolboy` 来做连接池，用 `epgsql` 做
+  数据库的驱动。
+
+  ## 设置
+
+  确保 PGPool 能从 Application 中启动。
+
+  1. 自动方式: 把 PGPool 作为 `mix.exs` 文件中的 app 依赖。
+
+  2. 手动方式：执行如下的代码：
+
+  ```elixir
+  PGPool.start()
+  ```
+
+  ## 数据库
+
+  在使用 PGPool 之前，需要指定数据库。在配置文件中加入如下内容：
+
+  ```elixir
+  config :pgpool,
+  databases: [
+    {:mydbname, # db name in poolboy
+     [
+       size: 10, # maximun pool size
+       max_overflow: 20 # maximum number of workers created if pool is empty
+     ],
+     [
+       hostname: 'localhost',
+       database: 'xxx',
+       username: 'xxx',
+       password: 'xxx'
+     ]
+    }
+  ]
+
+  ```
+
+  可以看出，PGPool 的配置格式与 `poolboy` 的要求保持一致。
+
+  ## 数据库访问
+
+  PGPool 的数据库执行方式和 `epgsql` 保持一致，可以分为两大类型。
+
+  ### 简单命令
+
+  简单命令是不带扩展参数的命令，对应于数据库中的普通 `Statement`。这种类型的数据
+  库访问可分为两类：
+
+  #### squery
+
+  squery 执行 SELECT 语句，比如：
+
+  ```elixir
+  PGPool.squery(:mydbname, "SELECT * FROM accounts;")
+  ```
+
+  返回的结果是：
+
+  ```elixir
+  {:ok, cols, rows} | {:error, :no_connection} | {:error, reason}
+  cols = %{String.t => non_neg_integer}
+  rows = [[any]]
+  reason = String.t
+  ```
+
+  对正常的返回结果，可以用 PGPool.get_field 方法来获取其中的字段数据。
+
+  #### scmd
+
+  scmd 执行 INSERT, UPDATE, DELETE 等修改数据库的 SQL 语句，比如：
+
+  ```elixir
+  PGPool.scmd(:mydbname, "DELETE FROM accounts WHERE id = 0")
+  ```
+
+  返回的结果是：
+
+  ```elixir
+  :ok | {:error, :no_connection} | {:error, reason}
+  reason = String.t
+  ```
+
+  ### 扩展命令
+
+  扩展命令对应于数据库的 `Prepared Statment`, 也分为两类：
+
+  #### equery
+
+  equery 执行 SELECT 语句，比如：
+
+  ```elixir
+  PGPool.squery(:mydbname, "SELECT * FROM accounts WHERE name = $1;", ["Alice"])
+  ```
+
+  扩展参数用 `$n` 来表示，n 从 1 开始。
+
+  返回的结果是：
+
+  ```elixir
+  {:ok, cols, rows} | {:error, :no_connection} | {:error, reason}
+  cols = %{String.t => non_neg_integer}
+  rows = [[any]]
+  reason = String.t
+  ```
+
+  对正常的返回结果，可以用 PGPool.get_field 方法来获取其中的字段数据。
+
+  #### ecmd
+
+  ecmd 执行 INSERT, UPDATE, DELETE 等修改数据库的 SQL 语句，比如：
+
+  ```elixir
+  PGPool.scmd(:mydbname, "DELETE FROM accounts WHERE id = $1", [ 0 ])
+  ```
+
+  返回的结果是：
+
+  ```elixir
+  :ok | {:error, :no_connection} | {:error, reason}
+  reason = String.t
+  ```
+
+  ### 重试
+
+  当数据库连接不存在时，squery/scmd, equery/ecmd 方法都会返回 `{:error,
+  :no_connection}`, 如果需要自动重试，直到连接可用，可以在 squery/scmd,
+  equery/ecmd 后增加一个 `retry_timeout` 参数。该参数设定了重试之前要等待的毫秒
+  数。`retry_timeout` 也可以是 `:infinity`，这样 PGPool 一直要等待连接池可用才会
+  返回。`retry_timeout` 的默认值是 0，即不重试，立刻返回。
+
+  ```elixir
+  PGPool.equery(:mydbname, "SELECT * FROM accounts WHERE name = $1", ["Alice"], 60000)
+  ```
+
+  ## 特殊类型
+
+  Postgresql 支持 hstore 类型，这是一个 Key-Value 类型。PGPool 用 Map 类型来表示
+  数据库的 hstore 类型，当参数中含有 Map 时，自动转换为 hstore 类型；当结果中有
+  hstore 类型时，自动转换为 Map 类型。
+
+  """
+
   @compile {:autoload, false}
   @on_load {:init, 0}
 
@@ -12,6 +158,18 @@ defmodule PGPool do
         " Try recompiling pgpool by running `mix deps.compile pgpool`" <>
         " and / or `MIX_ENV=test mix deps.compile pgpool`."}
     end
+  end
+
+  def start do
+    :ok = ensure_started(:poolboy)
+    :ok = ensure_started(:epgsql)
+    :ok = ensure_started(:pgpool)
+  end
+
+  def stop do
+    :ok = :application.stop(:pgpool)
+    :ok = :application.stop(:epgsql)
+    :ok = :application.stop(:poolboy)
   end
 
   @doc """
@@ -27,8 +185,10 @@ defmodule PGPool do
 
   |名称|类型|说明|
   |--|--|--|
+  |db|Keyword.t|在配置文件中的数据库名称|
   |stmt|String.t|SELECT　语句|
   |params|list|参数|
+  |retry_timeout|integer/:infinity|等待重试的时间|
 
   params 中可用的元素类型有：
 
@@ -68,13 +228,14 @@ defmodule PGPool do
 
   ```elixir
   {:error, reason}
+  {:error, :no_connection}
   ```
 
   since: 0.1.0
 
   """
-  @spec equery(String.t, [any]) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t}
-  def equery(stmt, params) do
+  @spec equery(Keyword.t, String.t, [any], non_neg_integer | :infinity) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t} | {:error, :no_connection}
+  def equery(db, stmt, params, retry_timeout \\ 0) do
     np = params
     |> Enum.map(fn x ->
       case is_map(x) do
@@ -82,10 +243,8 @@ defmodule PGPool do
         true -> map_to_hstore(x)
       end
     end)
-    :poolboy.transaction(:pgpool, fn(pid) ->
-      GenServer.call(pid, {:equery, stmt, np})
-      |> handle_query_result
-    end)
+    PGPool.Worker.equery(db, stmt, np, retry_timeout)
+    |> handle_query_result
   end
 
   @doc """
@@ -101,8 +260,10 @@ defmodule PGPool do
 
   |名称|类型|说明|
   |--|--|--|
+  |db|Keyword.t|在配置文件中的数据库名称|
   |stmt|String.t|SQL 语句|
   |params|list|参数|
+  |retry_timeout|integer/:infinity|等待重试的时间|
 
   params 中可用的元素类型有：
 
@@ -129,13 +290,14 @@ defmodule PGPool do
 
   ```elixir
   {:error, reason}
+  {:error, :no_connection}
   ```
 
   since: 0.1.0
 
   """
-  @spec ecmd(String.t, [any]) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t}
-  def ecmd(stmt, params) do
+  @spec ecmd(Keyword.t, String.t, [any], non_neg_integer | :infinity) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t} | {:error, :no_connection}
+  def ecmd(db, stmt, params, retry_timeout \\ 0) do
     np = params
     |> Enum.map(fn x ->
       case is_map(x) do
@@ -143,10 +305,8 @@ defmodule PGPool do
         true -> map_to_hstore(x)
       end
     end)
-    :poolboy.transaction(:pgpool, fn(pid) ->
-      GenServer.call(pid, {:equery, stmt, np})
-      |> handle_cmd_result
-    end)
+    PGPool.Worker.equery(db, stmt, np, retry_timeout)
+    |> handle_cmd_result
   end
 
   @doc """
@@ -160,7 +320,9 @@ defmodule PGPool do
 
   |名称|类型|说明|
   |--|--|--|
+  |db|Keyword.t|在配置文件中的数据库名称|
   |stmt|String.t|SELECT　语句|
+  |retry_timeout|integer/:infinity|等待重试的时间|
 
   ## 结果
 
@@ -187,17 +349,16 @@ defmodule PGPool do
 
   ```elixir
   {:error, reason}
+  {:error, :no_connection}
   ```
 
   since: 0.1.0
 
   """
-  @spec squery(String.t) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t}
-  def squery(stmt) do
-    :poolboy.transaction(:pgpool, fn(pid) ->
-      GenServer.call(pid, {:squery, stmt})
-      |> handle_query_result
-    end)
+  @spec squery(Keyword.t, String.t, non_neg_integer | :infinity) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t}
+  def squery(db, stmt, retry_timeout) do
+    PGPool.Worker.squery(db, stmt, retry_timeout)
+    |> handle_query_result
   end
 
   @doc """
@@ -211,7 +372,9 @@ defmodule PGPool do
 
   |名称|类型|说明|
   |--|--|--|
+  |db|Keyword.t|在配置文件中的数据库名称|
   |stmt|String.t|SQL 语句|
+  |retry_timeout|integer/:infinity|等待重试的时间|
 
   ## 结果
 
@@ -225,17 +388,16 @@ defmodule PGPool do
 
   ```elixir
   {:error, reason}
+  {:error, :no_connection}
   ```
 
   since: 0.1.0
 
   """
-  @spec scmd(String.t) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t}
-  def scmd(stmt) do
-    :poolboy.transaction(:pgpool, fn(pid) ->
-      GenServer.call(pid, {:squery, stmt})
-      |> handle_cmd_result
-    end)
+  @spec scmd(Keyword.t, String.t, non_neg_integer | :infinity) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t}
+  def scmd(db, stmt, retry_timeout) do
+    PGPool.Worker.squery(db, stmt, retry_timeout)
+    |> handle_cmd_result
   end
 
   @doc """
@@ -280,6 +442,10 @@ defmodule PGPool do
     raise "NIF hstore_to_map/2 not implemented"
   end
 
+  defp handle_query_result({:error, :no_connection} = result) do
+    result
+  end
+
   defp handle_query_result({:error, {_, _, _, error, _}}) do
     {:error, error}
   end
@@ -307,11 +473,22 @@ defmodule PGPool do
     {:ok, colmap, result}
   end
 
+  defp handle_cmd_result({:error, :no_connection} = result) do
+    result
+  end
+
   defp handle_cmd_result({:error, {_, _, _, error, _}}) do
     {:error, error}
   end
 
   defp handle_cmd_result(_any) do
     :ok
+  end
+
+  defp ensure_started(app) do
+    case :application.start(app) do
+      :ok -> :ok
+      {:error, {:already_started, _app}} -> :ok
+    end
   end
 end
