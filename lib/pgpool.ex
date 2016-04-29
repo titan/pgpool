@@ -356,7 +356,7 @@ defmodule PGPool do
 
   """
   @spec squery(Keyword.t, String.t, non_neg_integer | :infinity) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t}
-  def squery(db, stmt, retry_timeout) do
+  def squery(db, stmt, retry_timeout \\ 0) do
     PGPool.Worker.squery(db, stmt, retry_timeout)
     |> handle_query_result
   end
@@ -395,7 +395,7 @@ defmodule PGPool do
 
   """
   @spec scmd(Keyword.t, String.t, non_neg_integer | :infinity) :: {:ok, %{String.t => non_neg_integer}, [[any]]} | {:error, String.t}
-  def scmd(db, stmt, retry_timeout) do
+  def scmd(db, stmt, retry_timeout \\ 0) do
     PGPool.Worker.squery(db, stmt, retry_timeout)
     |> handle_cmd_result
   end
