@@ -12,7 +12,8 @@ defmodule PGPool.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :epgsql, :poolboy]]
+    [mod: {PGPool.Application, []},
+     applications: [:logger, :epgsql, :poolboy]]
   end
 
   defp deps do

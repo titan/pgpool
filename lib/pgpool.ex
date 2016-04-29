@@ -458,7 +458,7 @@ defmodule PGPool do
       end
     end)
     |> Enum.unzip
-    colmap = Enum.reduce(cols, {0, %{}}, fn x, {i, map} ->
+    {_count, colmap} = Enum.reduce(cols, {0, %{}}, fn x, {i, map} ->
       {i + 1, Map.put(map, x, i)}
     end)
     result = Enum.map(rows, fn x ->

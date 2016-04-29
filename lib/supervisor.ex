@@ -6,13 +6,13 @@ defmodule PGPool.Supervisor do
   end
 
   def init([]) do
-    {:ok, databases} = :application.get_env(:pgpool, :database)
+    {:ok, databases} = :application.get_env(:pgpool, :databases)
 
     children = databases
-    |> Enum.map(fn ({name, size_args, worker_args}, acc) ->
+    |> Enum.map(fn {name, size_args, worker_args} ->
       pool_args = [{:name, {:local, name}},
                    {:worker_module, PGPool.Worker}] ++ size_args
-      [:poolboy.child_spec(name, pool_args, worker_args) | acc]
+      :poolboy.child_spec(name, pool_args, worker_args)
     end)
 
     supervise(children, strategy: :one_for_one)
