@@ -446,7 +446,7 @@ defmodule PGPool do
     result
   end
 
-  defp handle_query_result({:error, {_, _, _, error, _}}) do
+  defp handle_query_result({:error, {_, _, _, _, error, _}}) do
     {:error, error}
   end
 
@@ -477,7 +477,7 @@ defmodule PGPool do
     result
   end
 
-  defp handle_cmd_result({:error, {_, _, _, error, _}}) do
+  defp handle_cmd_result({:error, {_, _, _, _, error, _}}) do
     {:error, error}
   end
 
