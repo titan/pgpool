@@ -387,7 +387,7 @@ defmodule PGPool do
   end
 
   @doc """
-  获取结果中的字段内容。
+  获取结果中的字段内容。注意，:null 将会被替换为 :nil
 
   ## 参数
 
@@ -402,12 +402,15 @@ defmodule PGPool do
       iex> PGPool.get_field(["a", "b", "c"], "B", %{"A" => 0, "B" => 1, "C" => 2})
       "b"
 
-  since: 0.1.0
+  since: 0.2.0
   """
   @spec get_field([any], String.t, %{String.t => non_neg_integer}) :: any
   def get_field(row, col, cols) do
     pos = Map.get(cols, col)
-    Enum.fetch!(row, pos)
+    case Enum.fetch!(row, pos) do
+      :null -> :nil
+      v -> v
+    end
   end
 
   defp map_to_hstore(map) do
