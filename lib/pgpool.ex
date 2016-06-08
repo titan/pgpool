@@ -146,20 +146,6 @@ defmodule PGPool do
 
   """
 
-  @compile {:autoload, false}
-  @on_load {:init, 0}
-
-  def init do
-    path = :filename.join(:code.priv_dir(:pgpool), 'hstore_to_map')
-
-    case :erlang.load_nif(path, 0) do
-      :ok -> :ok
-      _ -> {:error, "The file `hstore_to_map` failed to load." <>
-        " Try recompiling pgpool by running `mix deps.compile pgpool`" <>
-        " and / or `MIX_ENV=test mix deps.compile pgpool`."}
-    end
-  end
-
   def start do
     :ok = ensure_started(:poolboy)
     :ok = ensure_started(:epgsql)
@@ -438,10 +424,6 @@ defmodule PGPool do
     end
   end
 
-  defp hstore_to_map(_hstore, _map) do
-    raise "NIF hstore_to_map/2 not implemented"
-  end
-
   defp handle_query_result({:error, :no_connection} = result) do
     result
   end
@@ -465,7 +447,9 @@ defmodule PGPool do
       values = :erlang.tuple_to_list(x)
       Enum.map(0 .. :erlang.length(cols) - 1, fn i ->
         case Enum.fetch!(masks, i) do
-          true -> Enum.fetch!(values, i) |> String.split(",") |> Enum.reduce(%{}, &(hstore_to_map &1, &2))
+          true ->
+            {vs} = Enum.fetch!(values, i)
+            vs |> Enum.reduce(%{}, fn {k, v}, acc -> Map.put(acc, k, v) end)
           false -> Enum.fetch!(values, i)
         end
       end)
