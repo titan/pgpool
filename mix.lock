@@ -1,3 +1,4 @@
-%{"epgsql": {:hex, :epgsql, "3.2.0", "2277244364628ccfc271a843f4b014729d0799bcb99b70c2216bcfd6dd6b409e", [:rebar3], []},
-  "ex_doc": {:hex, :ex_doc, "0.11.4", "a064bdb720594c3745b94709b17ffb834fd858b4e0c1f48f37c0d92700759e02", [:mix], [{:earmark, "~> 0.1.17 or ~> 0.2", [hex: :earmark, optional: true]}]},
+%{"earmark": {:hex, :earmark, "0.2.1", "ba6d26ceb16106d069b289df66751734802777a3cbb6787026dd800ffeb850f3", [:mix], []},
+  "epgsql": {:hex, :epgsql, "3.2.0", "2277244364628ccfc271a843f4b014729d0799bcb99b70c2216bcfd6dd6b409e", [:rebar3], []},
+  "ex_doc": {:hex, :ex_doc, "0.12.0", "b774aabfede4af31c0301aece12371cbd25995a21bb3d71d66f5c2fe074c603f", [:mix], [{:earmark, "~> 0.2", [hex: :earmark, optional: false]}]},
   "poolboy": {:hex, :poolboy, "1.5.1", "6b46163901cfd0a1b43d692657ed9d7e599853b3b21b95ae5ae0a777cf9b6ca8", [:rebar], []}}
