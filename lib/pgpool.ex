@@ -472,6 +472,7 @@ defmodule PGPool do
               nil -> nil
               :null -> :null
               {kvs} -> kvs |> Enum.reduce(%{}, fn {k, v}, acc -> Map.put(acc, k, v) end)
+              "" -> %{}
               v -> v |> String.split(",") |> Enum.reduce(%{}, &(hstore_to_map &1, &2))
             end
           false -> Enum.fetch!(values, i)
